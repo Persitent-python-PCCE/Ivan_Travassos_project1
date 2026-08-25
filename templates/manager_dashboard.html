@@ -1,0 +1,76 @@
+{% extends "base.html" %}{% block title %}Manager Dashboard | NexaHR{% endblock %}{% block page_heading %}Manager Dashboard{% endblock %}{% block content %}
+<div class="hero mb-4"><span class="eyebrow">TEAM OPERATIONS</span><h2>Welcome, {{ manager.name.split(' ')[0] }}.</h2><p>Review your team and handle pending leave requests without leaving the dashboard.</p></div><div class="card-grid"><div class="stat-card"><div class="stat-icon"><i class="fa-solid fa-users"></i></div><small>Team members</small><h3>{{ team|length }}</h3></div><div class="stat-card"><div class="stat-icon"><i class="fa-solid fa-hourglass-half"></i></div><small>Pending leave</small><h3>{{ pending_leaves|length }}</h3></div><div class="stat-card"><div class="stat-icon"><i class="fa-solid fa-shield-halved"></i></div><small>Access level</small><h3 style="font-size:18px">MANAGER</h3></div></div>
+<div class="section-title"><h3>Team members</h3></div><div class="row g-3">{% for employee in team %}<div class="col-md-6 col-xl-4"><div class="employee-card"><div class="d-flex align-items-center gap-3"><div class="avatar">{{ employee.name[0]|upper }}</div><div><b>{{ employee.name }}</b><div class="muted small">{{ employee.email }}</div></div></div><hr class="border-secondary"><div class="small muted">Designation</div><div>{{ employee.designation.name if employee.designation else 'Not assigned' }}</div></div></div>{% else %}<div class="empty">No team members.</div>{% endfor %}</div>
+<div class="section-title"><h3>Pending leave requests</h3></div>{% for leave in pending_leaves %}<div class="leave-card"><div class="d-flex justify-content-between gap-3 flex-wrap"><div><b>{{ leave.employee.name }}</b><div class="muted small">{{ leave.leave_type.name }} · {{ leave.start_date }} → {{ leave.end_date }}</div></div><div class="actions"><button class="btn btn-sm btn-success approve-button" data-id="{{ leave.id }}">Approve</button><button class="btn btn-sm btn-outline-danger reject-button" data-id="{{ leave.id }}">Reject</button></div></div></div>{% else %}<div class="panel empty">No pending requests.</div>{% endfor %}
+{% endblock %}{% block scripts %}<script>
+function getCookie(name) {
+  const prefix = name + '=';
+  const value = document.cookie.split('; ').find(row => row.startsWith(prefix));
+  return value ? decodeURIComponent(value.substring(prefix.length)) : null;
+}
+
+document.querySelectorAll('.approve-button,.reject-button').forEach(button => {
+  button.addEventListener('click', async () => {
+    const action = button.classList.contains('approve-button') ? 'approve' : 'reject';
+    const csrfToken = getCookie('csrf_access_token');
+
+    button.disabled = true;
+
+    try {
+      let response = await fetch('/leaves/' + button.dataset.id + '/' + action, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': csrfToken || ''
+        }
+      });
+
+      // Access tokens are intentionally short-lived. If the access token has
+      // expired, refresh it through the HttpOnly refresh-token cookie and retry once.
+      if (response.status === 401) {
+        const refreshResponse = await fetch('/api/refresh', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+
+        if (refreshResponse.ok) {
+          const freshCsrfToken = getCookie('csrf_access_token');
+          response = await fetch('/leaves/' + button.dataset.id + '/' + action, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-TOKEN': freshCsrfToken || ''
+            }
+          });
+        } else {
+          const refreshData = await refreshResponse.json().catch(() => ({}));
+          alert(refreshData.message || 'Your session has expired. Please sign in again.');
+          window.location.href = '/login';
+          return;
+        }
+      }
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.status === 403) {
+        alert(data.message || 'You are not authorized to perform this action.');
+        return;
+      }
+
+      if (!response.ok) {
+        alert(data.error || data.message || 'Request failed');
+        return;
+      }
+
+      location.reload();
+    } catch (error) {
+      console.error('Leave action failed:', error);
+      alert('Could not contact the server. Please try again.');
+    } finally {
+      button.disabled = false;
+    }
+  });
+});
+</script>{% endblock %}

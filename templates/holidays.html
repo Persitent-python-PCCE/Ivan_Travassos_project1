@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Holiday Calendar | NexaHR{% endblock %}
+{% block page_heading %}Holiday Calendar{% endblock %}
+
+{% block content %}
+<div class="calendar-layout">
+  <section class="panel calendar-panel">
+    <div class="calendar-header">
+      <div>
+        <span class="eyebrow">TIME OFF &amp; PUBLIC HOLIDAYS</span>
+        <h2 class="calendar-title">{{ month_name }} {{ year }}</h2>
+        <p class="muted mb-0">Plan leave around company and public holidays.</p>
+      </div>
+      <div class="calendar-actions">
+        <a class="btn btn-soft" href="/holidays?year={{ previous.year }}&month={{ previous.month }}" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></a>
+        <a class="btn btn-soft" href="/holidays" title="Current month">Today</a>
+        <a class="btn btn-soft" href="/holidays?year={{ following.year }}&month={{ following.month }}" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></a>
+      </div>
+    </div>
+
+    <div class="calendar-grid calendar-weekdays">
+      {% for day in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}
+      <div>{{ day[:3] }}</div>
+      {% endfor %}
+    </div>
+
+    <div class="calendar-grid calendar-days">
+      {% for week in calendar %}
+        {% for day in week %}
+          {% if day == 0 %}
+          <div class="calendar-day empty-day"></div>
+          {% else %}
+          {% set holiday = holiday_map.get(day) %}
+          {% set cell_date = today.replace(year=year, month=month, day=day) %}
+          <div class="calendar-day {% if cell_date == today %}today{% endif %} {% if holiday %}holiday-day{% endif %}">
+            <div class="day-number">{{ day }}</div>
+            {% if holiday %}
+              <div class="holiday-pill">
+                <i class="fa-solid fa-star"></i>
+                <span>{{ holiday.name }}</span>
+              </div>
+              {% if holiday.description %}<small class="holiday-description">{{ holiday.description }}</small>{% endif %}
+              {% if session.get('role') == 'hr' %}
+              <form method="POST" action="/holidays/{{ holiday.id }}/delete" class="holiday-delete-form" onsubmit="return confirm('Delete this holiday?');">
+                <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete holiday"><i class="fa-solid fa-trash"></i></button>
+              </form>
+              {% endif %}
+            {% endif %}
+          </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <aside class="holiday-side">
+    {% if session.get('role') == 'hr' %}
+    <section class="panel">
+      <div class="section-title mt-0"><h3><i class="fa-solid fa-plus-circle text-info me-2"></i>Add Holiday</h3></div>
+      <form method="POST" action="/holidays/add">
+        <div class="mb-3">
+          <label class="form-label">Holiday name</label>
+          <input class="form-control" name="name" placeholder="e.g. Founder's Day" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Date</label>
+          <input class="form-control" type="date" name="holiday_date" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <input class="form-control" name="description" placeholder="Optional note">
+        </div>
+        <button class="btn btn-primary w-100" type="submit">Add to Calendar</button>
+      </form>
+    </section>
+    {% endif %}
+
+    <section class="panel upcoming-panel">
+      <div class="section-title mt-0"><h3><i class="fa-solid fa-clock text-info me-2"></i>Upcoming Holidays</h3></div>
+      {% if upcoming %}
+        {% for holiday in upcoming %}
+        <div class="upcoming-holiday">
+          <div class="holiday-date-box">
+            <strong>{{ holiday.holiday_date.strftime('%d') }}</strong>
+            <span>{{ holiday.holiday_date.strftime('%b') }}</span>
+          </div>
+          <div>
+            <b>{{ holiday.name }}</b>
+            <small>{{ holiday.holiday_date.strftime('%A, %d %B %Y') }}</small>
+            {% if holiday.description %}<span class="muted small">{{ holiday.description }}</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty py-4">No upcoming holidays.</div>
+      {% endif %}
+    </section>
+  </aside>
+</div>
+{% endblock %}
