@@ -31,77 +31,74 @@ from flask_jwt_extended import JWTManager
 # Load local development secrets from .env before reading configuration.
 load_dotenv()
 
-def create_app(test_config=None):
-    app = Flask(__name__)
+app = Flask(__name__)
 
-    app.secret_key = os.getenv("FLASK_SECRET_KEY")
-    if not app.secret_key:
-        # Tests can provide their own secret; production must use .env.
-        if test_config and test_config.get("SECRET_KEY"):
-            app.secret_key = test_config["SECRET_KEY"]
-        else:
-            raise RuntimeError("FLASK_SECRET_KEY is missing. Create a .env file from .env.example.")
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy"}), 200
 
-    # Allow tests to override the database before SQLAlchemy is initialized.
-    if test_config:
-        app.config.update(test_config)
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
+if not app.secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY is missing. Create a .env file from .env.example.")
 
-    # JWT configuration using RSA public/private keys (RS256).
-    private_key, public_key = load_keys()
-    app.config.setdefault("JWT_ALGORITHM", "RS256")
-    app.config.setdefault("JWT_PRIVATE_KEY", private_key)
-    app.config.setdefault("JWT_PUBLIC_KEY", public_key)
-    app.config.setdefault("JWT_TOKEN_LOCATION", ["headers", "cookies"])
-    app.config.setdefault("JWT_COOKIE_SECURE", os.getenv("JWT_COOKIE_SECURE", "false").lower() == "true")
-    app.config.setdefault("JWT_COOKIE_SAMESITE", os.getenv("JWT_COOKIE_SAMESITE", "Lax"))
-    app.config.setdefault("JWT_COOKIE_CSRF_PROTECT", True)
-    app.config.setdefault("JWT_ACCESS_COOKIE_NAME", "access_token_cookie")
-    app.config.setdefault("JWT_COOKIE_DOMAIN", None)
-    app.config.setdefault("JWT_ACCESS_TOKEN_EXPIRES", timedelta(minutes=int(os.getenv("JWT_ACCESS_MINUTES", "15"))))
-    app.config.setdefault("JWT_REFRESH_TOKEN_EXPIRES", timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "30"))))
+# JWT configuration using RSA public/private keys (RS256).
+private_key, public_key = load_keys()
+app.config["JWT_ALGORITHM"] = "RS256"
+app.config["JWT_PRIVATE_KEY"] = private_key
+app.config["JWT_PUBLIC_KEY"] = public_key
+app.config["JWT_TOKEN_LOCATION"] = ["headers", "cookies"]
+# Browser pages use an HttpOnly JWT cookie.
+# CSRF protection is enabled for cookie-based state-changing requests.
+app.config["JWT_COOKIE_SECURE"] = os.getenv("JWT_COOKIE_SECURE", "false").lower() == "true"
+app.config["JWT_COOKIE_SAMESITE"] = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
+app.config["JWT_COOKIE_CSRF_PROTECT"] = True
+app.config["JWT_ACCESS_COOKIE_NAME"] = "access_token_cookie"
+app.config["JWT_COOKIE_DOMAIN"] = None
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=int(os.getenv("JWT_ACCESS_MINUTES", "15")))
+app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "30")))
 
-    # Harden the browser session used by server-rendered pages.
-    app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
-    app.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
-    app.config.setdefault("MAX_CONTENT_LENGTH", int(os.getenv("MAX_UPLOAD_MB", "5")) * 1024 * 1024)
+# Harden the browser session used by the server-rendered pages.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    init_db(app)
-    jwt = JWTManager(app)
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_UPLOAD_MB", "5")) * 1024 * 1024
 
-    @jwt.token_in_blocklist_loader
-    def is_token_revoked(jwt_header, jwt_payload):
-        return jwt_payload["jti"] in REVOKED_TOKENS
+init_db(app)
 
-    @jwt.revoked_token_loader
-    def revoked_token_callback(jwt_header, jwt_payload):
-        return jsonify({"error": "Unauthorized", "message": "Token has been revoked"}), 401
+jwt = JWTManager(app)
 
-    @jwt.unauthorized_loader
-    def missing_token_callback(error):
-        if request.path.startswith("/api"):
-            return jsonify({"error": "Unauthorized", "message": "Bearer access token is required"}), 401
-        return jsonify({"error": "Unauthorized"}), 401
+@jwt.token_in_blocklist_loader
+def is_token_revoked(jwt_header, jwt_payload):
+    return jwt_payload["jti"] in REVOKED_TOKENS
 
-    @jwt.invalid_token_loader
-    def invalid_token_callback(error):
-        return jsonify({"error": "Unauthorized", "message": "Invalid or expired token"}), 401
+@jwt.revoked_token_loader
+def revoked_token_callback(jwt_header, jwt_payload):
+    return jsonify({"error": "Unauthorized", "message": "Token has been revoked"}), 401
 
-    app.register_blueprint(employee_controller)
-    app.register_blueprint(attendance_controller)
-    app.register_blueprint(leave_controller)
-    app.register_blueprint(user_controller)
-    app.register_blueprint(document_controller)
-    app.register_blueprint(holiday_controller)
+@jwt.unauthorized_loader
+def missing_token_callback(error):
+    if request.path.startswith("/api"):
+        return jsonify({"error": "Unauthorized", "message": "Bearer access token is required"}), 401
+    return jsonify({"error": "Unauthorized"}), 401
 
-    @app.route("/")
-    def home():
-        return render_template("index.html")
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    return jsonify({"error": "Unauthorized", "message": "Invalid or expired token"}), 401
 
-    return app
+app.register_blueprint(employee_controller)
+app.register_blueprint(attendance_controller)
+app.register_blueprint(leave_controller)
+app.register_blueprint(user_controller)
+app.register_blueprint(document_controller)
+app.register_blueprint(holiday_controller)
+
+
+@app.route("/")
+def home():
+    return render_template("index.html")
 
 
 def insert_initial_data():
-
 
     if Department.query.count() == 0:
 
@@ -151,10 +148,6 @@ def insert_initial_data():
     db.session.commit()
 
 
-
-app = create_app()
-
-
 if __name__ == "__main__":
 
     with app.app_context():
@@ -163,4 +156,4 @@ if __name__ == "__main__":
 
         insert_initial_data()
 
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
